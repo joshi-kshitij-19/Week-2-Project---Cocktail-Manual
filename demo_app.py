@@ -2,35 +2,36 @@
 demo_app.py
 -----------
 Interactive Command-Line Demo App for Project 1: Cocktail RAG Assistant
+Powered by Live Nebius Cloud API (Qwen 4096D Embeddings + Llama 3.3 70B LLM).
 
-Features:
-1. Initializes full RAG pipeline (Ingestion -> Chunking -> Embedding -> Hybrid Vector Store)
-2. Interactive terminal prompt where you can type any question
-3. Displays step-by-step LangGraph execution trace (Nodes visited)
-4. Shows Top-3 retrieved recipe chunks with hybrid similarity scores and metadata
-5. Outputs final cited response or refusal guardrail trigger
+Phase 2: Now uses ConversationalRAGPipeline (short_term_memory.py), which adds
+Graph RAG, Agentic RAG escalation, AND Short-Term (multi-turn) Memory on top
+of the original Step 6 pipeline -- so follow-ups like "make it less sweet"
+correctly resolve against the previous turn's cocktail within one session.
 """
 
 import sys
 import os
 import time
 
-from rag_generation_and_pipeline import (
-    ingest_and_clean_corpus,
+from ingest_and_clean import ingest_and_clean_corpus
+from vector_storage_and_retrieval import (
     apply_structural_chunking,
     CocktailEmbedder,
     generate_embeddings_for_chunks,
-    HybridVectorStore,
-    CocktailRAGPipeline
+    HybridVectorStore
 )
+from graph_builder import build_graph_from_documents
+from short_term_memory import ConversationalRAGPipeline
 
 
 def run_interactive_demo():
     print("\n" + "🍹"*30)
     print("  WELCOME TO THE COCKTAIL MANUAL RAG ASSISTANT DEMO")
+    print("  (Powered by Live Nebius AI Studio Cloud API)")
     print("🍹"*30 + "\n")
     
-    print("⏳ Initializing RAG Pipeline & Building Vector Index...")
+    print("⏳ Initializing RAG Pipeline & Building Vector Index via Nebius API...")
     start_time = time.time()
     
     # 1. Ingestion & Cleaning
@@ -40,23 +41,28 @@ def run_interactive_demo():
     chunks = apply_structural_chunking(docs)
     
     # 3. Vector Embeddings
-    embedder = CocktailEmbedder(model_name="text-embedding-3-small", dimensions=1536)
+    embedder = CocktailEmbedder(model_name="Qwen/Qwen3-Embedding-8B", dimensions=4096)
     records = generate_embeddings_for_chunks(chunks, embedder)
     
     # 4. Hybrid Vector Store
     vector_store = HybridVectorStore(records, embedder)
-    
-    # 5. LangGraph Pipeline
-    pipeline = CocktailRAGPipeline(vector_store)
+
+    # 5. Knowledge Graph (Phase 2: Graph RAG)
+    graph = build_graph_from_documents(docs)
+
+    # 6. Conversational Pipeline (Phase 2: Graph RAG + Agentic RAG + Short-Term Memory)
+    pipeline = ConversationalRAGPipeline(vector_store, graph)
     
     init_duration = time.time() - start_time
-    print(f"\n⚡ Pipeline Initialized in {init_duration:.2f}s! Ready for queries.\n")
+    print(f"\n⚡ Live Nebius Pipeline Initialized in {init_duration:.2f}s! Ready for queries.\n")
     print("="*70)
     print("💡 TRY THESE DEMO PRESETS OR TYPE YOUR OWN QUESTION:")
     print("  1. 'How do I make a Margarita?' (Direct Recipe Lookup)")
-    print("  2. 'What is a smoky agave drink with lime?' (Semantic Intent Search)")
-    print("  3. 'Show me drinks with Campari' (Exact Brand Keyword Search)")
-    print("  4. 'What is the capital of France?' (Refusal Guardrail Test)")
+    print("  2. 'Make it less sweet' (Follow-up -- tests Short-Term Memory)")
+    print("  3. 'What is a smoky agave drink with lime?' (Semantic Intent Search)")
+    print("  4. 'Show me drinks with Campari' (Exact Brand Keyword Search)")
+    print("  5. 'What other cocktails are variants of the Negroni?' (Graph RAG)")
+    print("  6. 'What is the capital of France?' (Refusal Guardrail Test)")
     print("  Type 'exit' or 'quit' to end the demo.")
     print("="*70 + "\n")
     
@@ -73,7 +79,8 @@ def run_interactive_demo():
             print(f"❓ QUERY: '{user_input}'")
             print("─"*70)
             
-            # Run LangGraph Workflow
+            # Run Conversational Workflow (chat_history persists automatically
+            # across turns inside `pipeline` for the rest of this session)
             state = pipeline.run_workflow(user_input)
             
             print("\n" + "─"*70 + "\n")

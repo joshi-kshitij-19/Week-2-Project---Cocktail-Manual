@@ -88,8 +88,33 @@ class HybridVectorStore:
             # Compute Dense Vector Score (Cosine Similarity)
             dense_score = cosine_similarity(query_vector, rec["vector"])
             
-            # Compute Sparse Keyword Score (BM25)
+            # Compute Sparse Keyword Score (BM25 + Exact Title Match Boost)
             sparse_score = bm25_keyword_score(query, rec["page_content"])
+            
+            # Title match boost (exact or fuzzy drink name match in user query)
+            import difflib
+            drink_name_clean = rec["drink_name"].lower().split("(")[0].strip()
+            query_clean = query.lower()
+            
+            fuzzy_match = False
+            if drink_name_clean:
+                if drink_name_clean in query_clean:
+                    fuzzy_match = True
+                else:
+                    # Check fuzzy Levenshtein ratio across query words
+                    for word in query_clean.split():
+                        if len(word) >= 4:
+                            ratio = difflib.SequenceMatcher(None, word, drink_name_clean).ratio()
+                            # Check full name similarity or first-word similarity (e.g. 'fashoined' vs 'fashioned')
+                            first_drink_word = drink_name_clean.split()[0] if " " in drink_name_clean else drink_name_clean
+                            last_drink_word = drink_name_clean.split()[-1] if " " in drink_name_clean else drink_name_clean
+                            ratio_last = difflib.SequenceMatcher(None, word, last_drink_word).ratio()
+                            if ratio >= 0.70 or ratio_last >= 0.70:
+                                fuzzy_match = True
+                                break
+            
+            if fuzzy_match:
+                sparse_score = min(1.0, sparse_score + 0.6)
             
             # Combined Hybrid Score
             hybrid_score = (alpha * dense_score) + ((1.0 - alpha) * sparse_score)
